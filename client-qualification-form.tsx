@@ -27,15 +27,21 @@ import {
   Sparkles,
   Mail,
   AlertCircle,
+  Calculator,
 } from "lucide-react"
+import { Toaster } from "@/components/ui/toaster"
+import jsPDF from "jspdf"
 
 interface QualificationData {
   // Connaissance contexte Éditeur - Référentiel
+  nomEditeur: string
   nbTitres: string
-  typeTitreNumero: boolean
-  typeTitreDateADate: boolean
+  titres: Array<{
+    nomTitre: string
+    typeTitre: string // "numero" ou "date-a-date"
+    nbAbonnes: string
+  }>
   frequenceTitres: string
-  nbAbonnesParTitre: string
   nbOffresActivesParTitre: string
   couplageTitres: string
 
@@ -180,11 +186,10 @@ export default function ClientQualificationForm() {
   const { toast } = useToast()
   const [formData, setFormData] = useState<QualificationData>({
     // Initialize all fields
+    nomEditeur: "",
     nbTitres: "",
-    typeTitreNumero: false,
-    typeTitreDateADate: false,
+    titres: [{ nomTitre: "", typeTitre: "", nbAbonnes: "" }],
     frequenceTitres: "",
-    nbAbonnesParTitre: "",
     nbOffresActivesParTitre: "",
     couplageTitres: "",
     cbAchat: false,
@@ -331,14 +336,257 @@ export default function ClientQualificationForm() {
     return () => clearTimeout(autoSave)
   }, [formData, toast])
 
+  const generatePDF = () => {
+    const doc = new jsPDF()
+    let yPosition = 20
+    const pageHeight = doc.internal.pageSize.height
+    const margin = 20
+
+    // Fonction pour ajouter une nouvelle page si nécessaire
+    const checkPageBreak = (additionalHeight = 10) => {
+      if (yPosition + additionalHeight > pageHeight - margin) {
+        doc.addPage()
+        yPosition = 20
+      }
+    }
+
+    // Fonction pour ajouter du texte avec retour à la ligne automatique
+    const addText = (text: string, x: number, fontSize = 10, isBold = false) => {
+      doc.setFontSize(fontSize)
+      if (isBold) {
+        doc.setFont("helvetica", "bold")
+      } else {
+        doc.setFont("helvetica", "normal")
+      }
+
+      const lines = doc.splitTextToSize(text, 170)
+      checkPageBreak(lines.length * 5)
+
+      lines.forEach((line: string) => {
+        doc.text(line, x, yPosition)
+        yPosition += 5
+      })
+      yPosition += 2
+    }
+
+    // Titre principal
+    doc.setFontSize(18)
+    doc.setFont("helvetica", "bold")
+    doc.text("SYNTHÈSE DE QUALIFICATION CLIENT", 20, yPosition)
+    yPosition += 15
+
+    // Date de génération
+    doc.setFontSize(10)
+    doc.setFont("helvetica", "normal")
+    doc.text(`Généré le : ${new Date().toLocaleDateString("fr-FR")}`, 20, yPosition)
+    yPosition += 15
+
+    // SECTION RÉFÉRENTIEL
+    addText("RÉFÉRENTIEL", 20, 14, true)
+    yPosition += 5
+
+    if (formData.nomEditeur) addText(`Nom de l'éditeur : ${formData.nomEditeur}`, 25)
+    if (formData.nbTitres) addText(`Nombre de titres : ${formData.nbTitres}`, 25)
+
+    // Détails des titres
+    if (formData.titres.some((t) => t.nomTitre || t.typeTitre || t.nbAbonnes)) {
+      addText("Détails des titres :", 25, 11, true)
+      formData.titres.forEach((titre, index) => {
+        if (titre.nomTitre || titre.typeTitre || titre.nbAbonnes) {
+          const typeText =
+            titre.typeTitre === "numero"
+              ? "Numéro à numéro"
+              : titre.typeTitre === "date-a-date"
+                ? "Date à date"
+                : "Non défini"
+          addText(`  • ${titre.nomTitre || `Titre ${index + 1}`} - ${typeText} - ${titre.nbAbonnes} abonnés`, 30)
+        }
+      })
+    }
+
+    if (formData.frequenceTitres) addText(`Fréquence des titres : ${formData.frequenceTitres}`, 25)
+    if (formData.nbOffresActivesParTitre)
+      addText(`Nb offres actives par titre : ${formData.nbOffresActivesParTitre}`, 25)
+    if (formData.couplageTitres) addText(`Couplage entre titres : ${formData.couplageTitres}`, 25)
+
+    yPosition += 10
+
+    // SECTION PAIEMENT
+    addText("PAIEMENT", 20, 14, true)
+    yPosition += 5
+
+    const paiementModes = []
+    if (formData.cbAchat) paiementModes.push("CB à l'acte")
+    if (formData.prelevementCB) paiementModes.push("Prélèvement CB")
+    if (formData.prelevementSEPA) paiementModes.push("Prélèvement SEPA")
+    if (formData.dureeLibre) paiementModes.push("Durée libre")
+    if (formData.paiementFractionne) paiementModes.push("Paiement fractionné")
+    if (formData.cheques) paiementModes.push("Chèques")
+
+    if (paiementModes.length > 0) {
+      addText(`Modes de paiement acceptés : ${paiementModes.join(", ")}`, 25)
+    }
+
+    if (formData.pspActuel) addText(`PSP actuel : ${formData.pspActuel}`, 25)
+    if (formData.politiqueRejetPrelevements)
+      addText(`Politique des rejets : ${formData.politiqueRejetPrelevements}`, 25)
+    if (formData.horsPrixTutar) addText("Règlements en attente à la migration : Oui", 25)
+
+    yPosition += 10
+
+    // SECTION MODE DE FONCTIONNEMENT
+    addText("MODE DE FONCTIONNEMENT", 20, 14, true)
+    yPosition += 5
+
+    const fonctionnalites = []
+    if (formData.portage) fonctionnalites.push("Portage")
+    if (formData.vpc) fonctionnalites.push("VPC")
+    if (formData.gestionFraisPort) fonctionnalites.push("Gestion frais de port")
+    if (formData.gestionAdministration) fonctionnalites.push("Gestion administration")
+    if (formData.gestionGratuits) fonctionnalites.push("Gestion des gratuits")
+    if (formData.gestionNPAI) fonctionnalites.push("Gestion des NPAI")
+    if (formData.gestionRemises) fonctionnalites.push("Gestion des remises")
+    if (formData.offresExemplaires) fonctionnalites.push("Offres à exemplaires multiples")
+    if (formData.suspensionsTemporaires) fonctionnalites.push("Suspensions temporaires")
+    if (formData.suspensionsDefinitives) fonctionnalites.push("Suspensions définitives")
+    if (formData.gestionRelances) fonctionnalites.push("Gestion des relances")
+    if (formData.gestionPrimes) fonctionnalites.push("Gestion des primes")
+    if (formData.gestionGraciesCopies) fonctionnalites.push("Gestion grâces copies")
+    if (formData.gestionParrainage) fonctionnalites.push("Gestion du parrainage")
+    if (formData.abonnementsConsommation) fonctionnalites.push("Abonnements à la consommation")
+    if (formData.transmissionFichiers) fonctionnalites.push("Transmission fichiers PQN")
+    if (formData.gestionEditions) fonctionnalites.push("Gestion des éditions")
+
+    if (fonctionnalites.length > 0) {
+      addText(`Fonctionnalités requises : ${fonctionnalites.join(", ")}`, 25)
+    }
+
+    yPosition += 10
+
+    // SECTION SOLUTION LOGICIELLE
+    addText("SOLUTION LOGICIELLE ACTUELLE", 20, 14, true)
+    yPosition += 5
+
+    if (formData.systemeActuel) addText(`Système actuel : ${formData.systemeActuel}`, 25)
+    if (formData.optInOptOut) addText(`Opt-in/Opt-out : ${formData.optInOptOut}`, 25)
+    if (formData.nbAdressesTotal) addText(`Nombre d'adresses total : ${formData.nbAdressesTotal}`, 25)
+    if (formData.nbAbonnementsTotal) addText(`Nombre d'abonnements total : ${formData.nbAbonnementsTotal}`, 25)
+
+    const solutionOptions = []
+    if (formData.souhaitGarderNumeroClients) solutionOptions.push("Garder les n° clients")
+    if (formData.historiquesSouhaites) solutionOptions.push("Historique souhaité")
+    if (formData.repriseHelpDesk) solutionOptions.push("Reprise HelpDesk")
+    if (formData.qualifiantsMarketing) solutionOptions.push("Qualifiants marketing")
+
+    if (solutionOptions.length > 0) {
+      addText(`Options : ${solutionOptions.join(", ")}`, 25)
+    }
+
+    yPosition += 10
+
+    // SECTION URBANISATION SI
+    addText("URBANISATION SI", 20, 14, true)
+    yPosition += 5
+
+    if (formData.applicationsConnexion) addText(`Applications à connecter : ${formData.applicationsConnexion}`, 25)
+    if (formData.logicielReporting) addText(`Logiciel BI : ${formData.logicielReporting}`, 25)
+    if (formData.baseClientCentralisee) addText(`Base client centralisée : ${formData.baseClientCentralisee}`, 25)
+    if (formData.ldapCrm) addText(`LDAP/CRM : ${formData.ldapCrm}`, 25)
+    if (formData.systemeFacturation) addText(`Système facturation : ${formData.systemeFacturation}`, 25)
+    if (formData.systemeComptabilite) addText(`Système comptabilité : ${formData.systemeComptabilite}`, 25)
+    if (formData.systemeGestionStocks) addText(`Gestion stocks : ${formData.systemeGestionStocks}`, 25)
+    if (formData.emailing) addText(`Emailing : ${formData.emailing}`, 25)
+    if (formData.connecteursWebService) addText("Connecteurs Web Service : Oui", 25)
+
+    yPosition += 10
+
+    // SECTION BOUTIQUE
+    addText("BOUTIQUE", 20, 14, true)
+    yPosition += 5
+
+    if (formData.boutiquesEditeur) addText(`Boutiques éditeur : ${formData.boutiquesEditeur}`, 25)
+    if (formData.nbBoutiquesActuelles) addText(`Nombre de boutiques : ${formData.nbBoutiquesActuelles}`, 25)
+    if (formData.moyenPaiementBoutiques) addText(`Moyens de paiement : ${formData.moyenPaiementBoutiques}`, 25)
+    if (formData.numeriques) addText(`Services numériques : ${formData.numeriques}`, 25)
+    if (formData.espaceClientEnLigne) addText("Espace client en ligne : Oui", 25)
+
+    yPosition += 10
+
+    // SECTION RELATION CLIENT
+    addText("GESTION RELATION CLIENT", 20, 14, true)
+    yPosition += 5
+
+    if (formData.nombreAppelsParAn) addText(`Appels par an : ${formData.nombreAppelsParAn}`, 25)
+    if (formData.motifAppels) addText(`Motifs appels : ${formData.motifAppels}`, 25)
+    if (formData.nombreMailsParAn) addText(`Mails par an : ${formData.nombreMailsParAn}`, 25)
+    if (formData.motifMails) addText(`Motifs mails : ${formData.motifMails}`, 25)
+    if (formData.nombreCourriersParAn) addText(`Courriers par an : ${formData.nombreCourriersParAn}`, 25)
+    if (formData.motifCourriers) addText(`Motifs courriers : ${formData.motifCourriers}`, 25)
+
+    yPosition += 10
+
+    // SECTION FULFILLMENT
+    addText("FULFILLMENT", 20, 14, true)
+    yPosition += 5
+
+    if (formData.nbNumeroParAn) addText(`Nombre de N°/an : ${formData.nbNumeroParAn}`, 25)
+    if (formData.nbAbonnesPapierActifs) addText(`Abonnés papier actifs : ${formData.nbAbonnesPapierActifs}`, 25)
+    if (formData.nbAbonnesPortes) addText(`Abonnés portés : ${formData.nbAbonnesPortes}`, 25)
+    if (formData.nbAbonnesNumeriques) addText(`Abonnés numériques : ${formData.nbAbonnesNumeriques}`, 25)
+    if (formData.nbAbonnesCouplesPapier) addText(`Abonnés couplés papier : ${formData.nbAbonnesCouplesPapier}`, 25)
+    if (formData.nbAbonnesInactifsProspects) addText(`Inactifs/prospects : ${formData.nbAbonnesInactifsProspects}`, 25)
+
+    const relancesTypes = []
+    if (formData.relancesParPoste) relancesTypes.push("Poste")
+    if (formData.relancesAvecJournal) relancesTypes.push("Avec journal")
+    if (formData.relancesParEmail) relancesTypes.push("Email")
+    if (formData.relancesParSMS) relancesTypes.push("SMS")
+
+    if (relancesTypes.length > 0) {
+      addText(`Types de relances : ${relancesTypes.join(", ")}`, 25)
+    }
+
+    if (formData.nbCreationsBulletinPapier) addText(`Créations bulletin/an : ${formData.nbCreationsBulletinPapier}`, 25)
+    if (formData.nbReabonnementBulletinPapier)
+      addText(`Réabonnements bulletin/an : ${formData.nbReabonnementBulletinPapier}`, 25)
+    if (formData.nbAbonnesPrelevementSEPA) addText(`Abonnés SEPA : ${formData.nbAbonnesPrelevementSEPA}`, 25)
+    if (formData.frequencePrelevements) addText(`Fréquence prélèvements : ${formData.frequencePrelevements}`, 25)
+    if (formData.nbCartesBancaires) addText(`Cartes bancaires/an : ${formData.nbCartesBancaires}`, 25)
+    if (formData.nbChequesEncaisses) addText(`Chèques/an : ${formData.nbChequesEncaisses}`, 25)
+    if (formData.frequenceRemiseCheques) addText(`Fréquence remise chèques : ${formData.frequenceRemiseCheques}`, 25)
+    if (formData.nbAbonnementsLigne) addText(`Abonnements en ligne/an : ${formData.nbAbonnementsLigne}`, 25)
+    if (formData.nbCommandesVPC) addText(`Commandes VPC : ${formData.nbCommandesVPC}`, 25)
+    if (formData.nbCommandesPapier) addText(`Commandes papier/an : ${formData.nbCommandesPapier}`, 25)
+
+    if (formData.bulletinsQualifications) addText(`Qualifications bulletins : ${formData.bulletinsQualifications}`, 25)
+
+    const diversOptions = []
+    if (formData.editionsMultiples) diversOptions.push("Éditions multiples")
+    if (formData.abonnementsElectroniquesCouples) diversOptions.push("Abonnements électroniques couplés")
+    if (formData.abonnementsElectroniquesNonCouples) diversOptions.push("Abonnements électroniques non couplés")
+
+    if (diversOptions.length > 0) {
+      addText(`Options diverses : ${diversOptions.join(", ")}`, 25)
+    }
+
+    if (formData.portage) addText(`Portage : ${formData.portage}`, 25)
+    if (formData.frequenceTirages) addText(`Fréquence tirages : ${formData.frequenceTirages}`, 25)
+
+    // Sauvegarder le PDF
+    const fileName = `Qualification_Client_${formData.nomEditeur || "Sans_nom"}_${new Date().toISOString().split("T")[0]}.pdf`
+    doc.save(fileName)
+  }
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
 
     // Validate required fields
     const errors: string[] = []
+    if (!formData.nomEditeur.trim()) errors.push("Nom de l'éditeur")
     if (!formData.nbTitres.trim()) errors.push("Nombre de titres")
-    if (!formData.frequenceTitres.trim() && formData.typeTitreNumero) errors.push("Fréquence des titres")
-    if (!formData.nbAbonnesParTitre.trim()) errors.push("Nombre d'abonnés par titre")
+    if (formData.titres.some((titre) => titre.typeTitre === "numero") && !formData.frequenceTitres.trim()) {
+      errors.push("Fréquence des titres")
+    }
 
     if (errors.length > 0) {
       setValidationErrors(errors)
@@ -351,30 +599,131 @@ export default function ClientQualificationForm() {
     }
 
     setValidationErrors([])
+
+    // Générer le PDF
+    generatePDF()
+
+    // Afficher la synthèse
     setShowSummary(true)
+
     toast({
       title: "🎉 Synthèse générée avec succès",
-      description: "Votre qualification client est maintenant prête à être consultée.",
+      description: "Votre qualification client est prête et le PDF a été téléchargé !",
       duration: 3000,
     })
   }
 
   const handleSaveManually = () => {
     localStorage.setItem("clientQualificationData", JSON.stringify(formData))
+
+    // Array of super fun toast messages
+    const funMessages = [
+      {
+        title: "🎉 Tadaaaa ! Sauvegarde magique !",
+        description: "Vos données ont été téléportées dans le cloud avec succès ! Aucun bit n'a été blessé.",
+      },
+      {
+        title: "🚀 Houston, on a un succès !",
+        description: "Mission sauvegarde accomplie ! Vos données voyagent maintenant à la vitesse de la lumière !",
+      },
+      {
+        title: "🎪 Mesdames et messieurs... SAUVEGARDÉ !",
+        description: "Sous vos yeux ébahis, vos données ont disparu... pour réapparaître en sécurité !",
+      },
+      {
+        title: "🏆 Champion du monde de la sauvegarde !",
+        description: "Félicitations ! Vous venez de battre le record du monde de sauvegarde la plus stylée !",
+      },
+      {
+        title: "🎯 Bullseye ! Dans le mille !",
+        description: "Vos données ont atterri pile dans le serveur ! Robin des Bois serait jaloux !",
+      },
+      {
+        title: "🧙‍♂️ Abracadabra ! Sauvegardus Maximus !",
+        description: "D'un coup de baguette magique, vos données sont maintenant protégées par un sort de sauvegarde !",
+      },
+      {
+        title: "🎸 Rock'n'Roll Sauvegarde !",
+        description: "Vos données viennent de faire un solo de guitare épique dans nos serveurs !",
+      },
+      {
+        title: "🍕 Sauvegarde al dente !",
+        description: "Comme une pizza parfaite, vos données sont cuites à point et prêtes à être dégustées !",
+      },
+      {
+        title: "🦸‍♀️ Super Sauvegarde à la rescousse !",
+        description: "Avec ses super pouvoirs, Captain Backup a sauvé vos données du chaos numérique !",
+      },
+      {
+        title: "🎭 Acte I, Scène 1 : La Grande Sauvegarde",
+        description: "Dans cette tragédie moderne, vos données trouvent enfin la paix éternelle sur nos serveurs !",
+      },
+      {
+        title: "🏴‍☠️ Yo ho ho ! Trésor sauvegardé !",
+        description:
+          "Capitaine, le trésor de vos données est maintenant en sécurité dans notre coffre-fort numérique !",
+      },
+      {
+        title: "🎨 Chef-d'œuvre sauvegardé !",
+        description: "Vos données sont maintenant exposées dans le musée virtuel de nos serveurs sécurisés !",
+      },
+    ]
+
+    // Pick a random message
+    const randomMessage = funMessages[Math.floor(Math.random() * funMessages.length)]
+
     toast({
-      title: "💾 Sauvegarde manuelle effectuée",
-      description: "Toutes vos données ont été sauvegardées avec succès.",
-      duration: 2000,
+      title: randomMessage.title,
+      description: randomMessage.description,
+      duration: 4000,
+    })
+  }
+
+  const handleChiffrage = () => {
+    // Array of fun chiffrage messages
+    const chiffrageMessages = [
+      {
+        title: "🧮 Calcul en cours... Bip boop !",
+        description: "Nos super-ordinateurs quantiques calculent votre devis avec précision nanométrique !",
+      },
+      {
+        title: "💰 Chiffrage magique en action !",
+        description: "Abracadabra ! Nos algorithmes secrets transforment vos besoins en chiffres dorés !",
+      },
+      {
+        title: "🎯 Précision de sniper !",
+        description: "Nos experts-comptables ninjas calculent votre devis avec une précision chirurgicale !",
+      },
+      {
+        title: "🚀 Chiffrage à la vitesse de l'éclair !",
+        description: "Plus rapide que Flash, notre système calcule votre devis en temps record !",
+      },
+      {
+        title: "🎪 Le grand spectacle du chiffrage !",
+        description: "Mesdames et messieurs, voici le numéro le plus attendu : votre devis personnalisé !",
+      },
+      {
+        title: "🏆 Chiffrage de champion !",
+        description: "Médaille d'or du chiffrage ! Votre devis est calculé avec une expertise olympique !",
+      },
+    ]
+
+    // Pick a random message
+    const randomMessage = chiffrageMessages[Math.floor(Math.random() * chiffrageMessages.length)]
+
+    toast({
+      title: randomMessage.title,
+      description: randomMessage.description,
+      duration: 4000,
     })
   }
 
   const resetForm = () => {
     setFormData({
+      nomEditeur: "",
       nbTitres: "",
-      typeTitreNumero: false,
-      typeTitreDateADate: false,
+      titres: [{ nomTitre: "", typeTitre: "", nbAbonnes: "" }],
       frequenceTitres: "",
-      nbAbonnesParTitre: "",
       nbOffresActivesParTitre: "",
       couplageTitres: "",
       cbAchat: false,
@@ -529,31 +878,34 @@ export default function ClientQualificationForm() {
               </CardHeader>
               <CardContent className="grid gap-6 md:grid-cols-2">
                 <div className="space-y-2">
+                  <Label className="text-violet-200 text-sm font-medium">Nom de l'éditeur</Label>
+                  <p className="text-xl font-semibold">{formData.nomEditeur || "Non spécifié"}</p>
+                </div>
+                <div className="space-y-2">
                   <Label className="text-violet-200 text-sm font-medium">Nombre de titres</Label>
                   <p className="text-xl font-semibold">{formData.nbTitres || "Non spécifié"}</p>
                 </div>
-                <div className="space-y-2">
-                  <Label className="text-violet-200 text-sm font-medium">Type de titre</Label>
-                  <div className="flex gap-2">
-                    {formData.typeTitreNumero && (
-                      <Badge variant="secondary" className="bg-violet-700 text-white">
-                        Numéro
-                      </Badge>
-                    )}
-                    {formData.typeTitreDateADate && (
-                      <Badge variant="secondary" className="bg-violet-700 text-white">
-                        Date à date
-                      </Badge>
-                    )}
+                <div className="md:col-span-2 space-y-2">
+                  <Label className="text-violet-200 text-sm font-medium">Titres</Label>
+                  <div className="space-y-2">
+                    {formData.titres.map((titre, index) => (
+                      <div key={index} className="flex items-center gap-4 p-2 rounded bg-violet-800/30">
+                        <span className="font-medium">{titre.nomTitre || `Titre ${index + 1}`}</span>
+                        <Badge variant="secondary" className="bg-violet-700 text-white">
+                          {titre.typeTitre === "numero"
+                            ? "Numéro à numéro"
+                            : titre.typeTitre === "date-a-date"
+                              ? "Date à date"
+                              : "Non défini"}
+                        </Badge>
+                        <span className="text-sm">{titre.nbAbonnes} abonnés</span>
+                      </div>
+                    ))}
                   </div>
                 </div>
                 <div className="space-y-2">
                   <Label className="text-violet-200 text-sm font-medium">Fréquence des titres</Label>
                   <p className="text-lg">{formData.frequenceTitres || "Non spécifié"}</p>
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-violet-200 text-sm font-medium">Nb d'abonnés par titre</Label>
-                  <p className="text-lg">{formData.nbAbonnesParTitre || "Non spécifié"}</p>
                 </div>
               </CardContent>
             </Card>
@@ -638,26 +990,6 @@ export default function ClientQualificationForm() {
           <div className="flex justify-center mb-6">
             <img src="/logo-opper.png" alt="Opper Logo" className="h-16 w-auto" />
           </div>
-
-          <div className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-violet-100 to-indigo-100 rounded-full border border-violet-200">
-            <Sparkles className="h-4 w-4 text-violet-600" />
-            <span className="text-sm font-medium text-violet-700">Qualification Client Premium</span>
-          </div>
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-violet-800 via-purple-700 to-indigo-800 bg-clip-text text-transparent">
-            Formulaire de Qualification Client
-          </h1>
-          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-            Collectez et analysez les informations détaillées pour la qualification des éditeurs et solutions
-            logicielles
-          </p>
-
-          {/* Required fields notice */}
-          <div className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-red-50 to-orange-50 border border-red-200 rounded-lg">
-            <AlertCircle className="h-4 w-4 text-red-500" />
-            <span className="text-sm text-red-700">
-              <span className="text-red-500">*</span> Champs obligatoires
-            </span>
-          </div>
         </div>
 
         <Card className="border-0 shadow-2xl bg-white/90 backdrop-blur-sm">
@@ -677,15 +1009,26 @@ export default function ClientQualificationForm() {
                   </div>
                 )}
               </div>
-              <Button
-                onClick={handleSaveManually}
-                variant="outline"
-                size="sm"
-                className="border-violet-200 text-violet-700 hover:bg-violet-50 bg-white/80"
-              >
-                <Save className="mr-2 h-4 w-4" />
-                Sauvegarder
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  onClick={handleChiffrage}
+                  variant="outline"
+                  size="sm"
+                  className="border-orange-200 text-orange-700 hover:bg-orange-50 bg-white/80"
+                >
+                  <Calculator className="mr-2 h-4 w-4" />
+                  Chiffrage
+                </Button>
+                <Button
+                  onClick={handleSaveManually}
+                  variant="outline"
+                  size="sm"
+                  className="border-violet-200 text-violet-700 hover:bg-violet-50 bg-white/80"
+                >
+                  <Save className="mr-2 h-4 w-4" />
+                  Sauvegarder
+                </Button>
+              </div>
             </div>
 
             <form onSubmit={handleSubmit}>
@@ -772,6 +1115,32 @@ export default function ClientQualificationForm() {
                           <div className="grid gap-6 md:grid-cols-2">
                             <div className="space-y-3">
                               <Label
+                                htmlFor="nomEditeur"
+                                className="text-sm font-medium text-gray-700 flex items-center gap-1"
+                              >
+                                Nom de l'éditeur
+                                <span className="text-red-500">*</span>
+                              </Label>
+                              <Input
+                                id="nomEditeur"
+                                value={formData.nomEditeur}
+                                onChange={(e) => handleInputChange("nomEditeur", e.target.value)}
+                                className={`border-violet-200 focus:border-violet-400 focus:ring-violet-400 rounded-lg transition-colors ${
+                                  validationErrors.includes("Nom de l'éditeur") ? "border-red-300 bg-red-50" : ""
+                                }`}
+                                placeholder="Entrez le nom de l'éditeur"
+                                required
+                              />
+                              {validationErrors.includes("Nom de l'éditeur") && (
+                                <p className="text-sm text-red-600 flex items-center gap-1">
+                                  <AlertCircle className="h-3 w-3" />
+                                  Ce champ est obligatoire
+                                </p>
+                              )}
+                            </div>
+
+                            <div className="space-y-3">
+                              <Label
                                 htmlFor="nbTitres"
                                 className="text-sm font-medium text-gray-700 flex items-center gap-1"
                               >
@@ -795,106 +1164,136 @@ export default function ClientQualificationForm() {
                                 </p>
                               )}
                             </div>
+                          </div>
 
-                            <div className="space-y-3">
-                              <Label className="text-sm font-medium text-gray-700">Type de titre</Label>
-                              <div className="space-y-3">
-                                <div className="flex items-center space-x-3 p-3 rounded-lg border border-violet-200 hover:bg-violet-50 transition-colors">
-                                  <Checkbox
-                                    id="typeTitreNumero"
-                                    checked={formData.typeTitreNumero}
-                                    onCheckedChange={(checked) =>
-                                      handleInputChange("typeTitreNumero", checked as boolean)
-                                    }
-                                    className="border-violet-300 data-[state=checked]:bg-violet-600"
-                                  />
-                                  <Label htmlFor="typeTitreNumero" className="text-sm font-medium cursor-pointer">
-                                    Numéro
-                                  </Label>
-                                </div>
-                                <div className="flex items-center space-x-3 p-3 rounded-lg border border-violet-200 hover:bg-violet-50 transition-colors">
-                                  <Checkbox
-                                    id="typeTitreDateADate"
-                                    checked={formData.typeTitreDateADate}
-                                    onCheckedChange={(checked) =>
-                                      handleInputChange("typeTitreDateADate", checked as boolean)
-                                    }
-                                    className="border-violet-300 data-[state=checked]:bg-violet-600"
-                                  />
-                                  <Label htmlFor="typeTitreDateADate" className="text-sm font-medium cursor-pointer">
-                                    Date à date
-                                  </Label>
-                                </div>
-                              </div>
+                          {/* Section des titres */}
+                          <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                              <Label className="text-base font-semibold text-gray-800">Détails des titres</Label>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  const newTitres = [...formData.titres, { nomTitre: "", typeTitre: "", nbAbonnes: "" }]
+                                  setFormData((prev) => ({ ...prev, titres: newTitres }))
+                                }}
+                                className="border-violet-200 text-violet-700 hover:bg-violet-50"
+                              >
+                                + Ajouter un titre
+                              </Button>
                             </div>
 
-                            {formData.typeTitreNumero && (
-                              <div className="space-y-3">
-                                <Label
-                                  htmlFor="frequenceTitres"
-                                  className="text-sm font-medium text-gray-700 flex items-center gap-1"
-                                >
-                                  Fréquence des titres
-                                  <span className="text-red-500">*</span>
-                                </Label>
-                                <Select
-                                  onValueChange={(value) => handleInputChange("frequenceTitres", value)}
-                                  value={formData.frequenceTitres}
-                                >
-                                  <SelectTrigger
-                                    className={`border-violet-200 focus:border-violet-400 rounded-lg transition-colors ${
-                                      validationErrors.includes("Fréquence des titres")
-                                        ? "border-red-300 bg-red-50"
-                                        : ""
-                                    }`}
-                                  >
-                                    <SelectValue placeholder="Sélectionnez la fréquence" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="quotidien">Quotidien</SelectItem>
-                                    <SelectItem value="hebdomadaire">Hebdomadaire</SelectItem>
-                                    <SelectItem value="mensuel">Mensuel</SelectItem>
-                                    <SelectItem value="trimestriel">Trimestriel</SelectItem>
-                                    <SelectItem value="multi-frequence">Multi fréquence</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                                {validationErrors.includes("Fréquence des titres") && (
-                                  <p className="text-sm text-red-600 flex items-center gap-1">
-                                    <AlertCircle className="h-3 w-3" />
-                                    Ce champ est obligatoire
-                                  </p>
-                                )}
-                              </div>
-                            )}
+                            {formData.titres.map((titre, index) => (
+                              <div key={index} className="p-4 rounded-lg border border-violet-200 bg-violet-50/30">
+                                <div className="grid gap-4 md:grid-cols-3">
+                                  <div className="space-y-2">
+                                    <Label className="text-sm font-medium text-gray-700">Nom du titre</Label>
+                                    <Input
+                                      value={titre.nomTitre}
+                                      onChange={(e) => {
+                                        const newTitres = [...formData.titres]
+                                        newTitres[index].nomTitre = e.target.value
+                                        setFormData((prev) => ({ ...prev, titres: newTitres }))
+                                      }}
+                                      className="border-violet-200 focus:border-violet-400 focus:ring-violet-400 rounded-lg transition-colors"
+                                      placeholder="Nom du titre"
+                                    />
+                                  </div>
 
+                                  <div className="space-y-2">
+                                    <Label className="text-sm font-medium text-gray-700">Type</Label>
+                                    <Select
+                                      value={titre.typeTitre}
+                                      onValueChange={(value) => {
+                                        const newTitres = [...formData.titres]
+                                        newTitres[index].typeTitre = value
+                                        setFormData((prev) => ({ ...prev, titres: newTitres }))
+                                      }}
+                                    >
+                                      <SelectTrigger className="border-violet-200 focus:border-violet-400 rounded-lg transition-colors">
+                                        <SelectValue placeholder="Type" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="numero">Numéro à numéro</SelectItem>
+                                        <SelectItem value="date-a-date">Date à date</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    <Label className="text-sm font-medium text-gray-700">Nb d'abonnés</Label>
+                                    <div className="flex gap-2">
+                                      <Input
+                                        value={titre.nbAbonnes}
+                                        onChange={(e) => {
+                                          const newTitres = [...formData.titres]
+                                          newTitres[index].nbAbonnes = e.target.value
+                                          setFormData((prev) => ({ ...prev, titres: newTitres }))
+                                        }}
+                                        className="border-violet-200 focus:border-violet-400 focus:ring-violet-400 rounded-lg transition-colors"
+                                        placeholder="Nombre"
+                                      />
+                                      {formData.titres.length > 1 && (
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => {
+                                            const newTitres = formData.titres.filter((_, i) => i !== index)
+                                            setFormData((prev) => ({ ...prev, titres: newTitres }))
+                                          }}
+                                          className="border-red-200 text-red-600 hover:bg-red-50"
+                                        >
+                                          ×
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* Fréquence des titres - conditionnel */}
+                          {formData.titres.some((titre) => titre.typeTitre === "numero") && (
                             <div className="space-y-3">
                               <Label
-                                htmlFor="nbAbonnesParTitre"
+                                htmlFor="frequenceTitres"
                                 className="text-sm font-medium text-gray-700 flex items-center gap-1"
                               >
-                                Nb d'abonnés par titre
+                                Fréquence des titres (pour les titres numérotés)
                                 <span className="text-red-500">*</span>
                               </Label>
-                              <Input
-                                id="nbAbonnesParTitre"
-                                value={formData.nbAbonnesParTitre}
-                                onChange={(e) => handleInputChange("nbAbonnesParTitre", e.target.value)}
-                                className={`border-violet-200 focus:border-violet-400 focus:ring-violet-400 rounded-lg transition-colors ${
-                                  validationErrors.includes("Nombre d'abonnés par titre")
-                                    ? "border-red-300 bg-red-50"
-                                    : ""
-                                }`}
-                                placeholder="Nombre d'abonnés"
-                                required
-                              />
-                              {validationErrors.includes("Nombre d'abonnés par titre") && (
+                              <Select
+                                onValueChange={(value) => handleInputChange("frequenceTitres", value)}
+                                value={formData.frequenceTitres}
+                              >
+                                <SelectTrigger
+                                  className={`border-violet-200 focus:border-violet-400 rounded-lg transition-colors ${
+                                    validationErrors.includes("Fréquence des titres") ? "border-red-300 bg-red-50" : ""
+                                  }`}
+                                >
+                                  <SelectValue placeholder="Sélectionnez la fréquence" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="quotidien">Quotidien</SelectItem>
+                                  <SelectItem value="hebdomadaire">Hebdomadaire</SelectItem>
+                                  <SelectItem value="mensuel">Mensuel</SelectItem>
+                                  <SelectItem value="trimestriel">Trimestriel</SelectItem>
+                                  <SelectItem value="multi-frequence">Multi fréquence</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              {validationErrors.includes("Fréquence des titres") && (
                                 <p className="text-sm text-red-600 flex items-center gap-1">
                                   <AlertCircle className="h-3 w-3" />
                                   Ce champ est obligatoire
                                 </p>
                               )}
                             </div>
+                          )}
 
+                          <div className="grid gap-6 md:grid-cols-2">
                             <div className="space-y-3">
                               <Label htmlFor="nbOffresActivesParTitre" className="text-sm font-medium text-gray-700">
                                 Nb offres actives par titre
@@ -1832,8 +2231,11 @@ export default function ClientQualificationForm() {
                               <Checkbox
                                 id={item.id}
                                 checked={formData[item.id as keyof QualificationData] as boolean}
-                                onCheckedChange={(checked) =>
-                                  handleInputChange(item.id as keyof QualificationData, checked as boolean)
+                                onChange={(e) =>
+                                  handleInputChange(
+                                    item.id as keyof QualificationData,
+                                    (e.target as HTMLInputElement).checked,
+                                  )
                                 }
                                 className="border-gray-300 data-[state=checked]:bg-gray-600"
                               />
@@ -1896,6 +2298,7 @@ export default function ClientQualificationForm() {
             </form>
           </CardContent>
         </Card>
+        <Toaster />
       </div>
     </div>
   )
